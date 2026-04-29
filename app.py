@@ -30,13 +30,14 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📊 Revenue Status Prediction App")
+st.title("Revenue Status Prediction App")
 st.caption("Developed by Dollen Kyotungire")
 
 st.write(
     """
-    This app trains a machine learning model using the uploaded advertising revenue dataset.
-    It predicts whether a booking record is likely to result in **Has Revenue** or **No Revenue Risk**.
+    This app trains a machine learning model using the advertising revenue dataset
+    stored inside the project folder. It predicts whether a booking record is likely
+    to result in Has Revenue or No Revenue Risk.
     """
 )
 
@@ -44,50 +45,29 @@ st.markdown("---")
 
 
 # --------------------------------------------------
-# Upload dataset
-# --------------------------------------------------
-
-st.subheader("1. Upload Dataset")
-
-uploaded_file = st.file_uploader(
-    "Upload the Excel dataset used for the revenue status project",
-    type=["xlsx", "xls", "csv"]
-)
-
-if uploaded_file is None:
-    st.info("Please upload your dataset to begin.")
-    st.stop()
-
-
-# --------------------------------------------------
-# Load dataset
+# Load dataset from repository
 # --------------------------------------------------
 
 @st.cache_data
-def load_data(file):
-    if file.name.endswith(".csv"):
-        data = pd.read_csv(file)
-        sheet_names = None
-    else:
-        excel_file = pd.ExcelFile(file)
-        sheet_names = excel_file.sheet_names
-        data = pd.read_excel(file, sheet_name=sheet_names[0])
-    return data, sheet_names
+def load_data():
+    file_path = "Data.xlsx"
+    xls = pd.ExcelFile(file_path)
+    sheet_name = xls.sheet_names[0]
+    data = pd.read_excel(file_path, sheet_name=sheet_name)
+    return data, sheet_name
 
 
-df, sheet_names = load_data(uploaded_file)
+try:
+    df, sheet_used = load_data()
+except Exception as e:
+    st.error("Dataset could not be loaded.")
+    st.write("Make sure the file is named exactly `Data.xlsx` and is in the same folder as `app.py`.")
+    st.write("Actual error:")
+    st.exception(e)
+    st.stop()
 
-if sheet_names is not None:
-    selected_sheet = st.selectbox("Select sheet", sheet_names)
 
-    @st.cache_data
-    def load_selected_sheet(file, sheet):
-        return pd.read_excel(file, sheet_name=sheet)
-
-    df = load_selected_sheet(uploaded_file, selected_sheet)
-
-st.success("Dataset loaded successfully.")
-
+st.success(f"Dataset loaded successfully from sheet: {sheet_used}")
 st.write("Dataset shape:", df.shape)
 
 with st.expander("Preview dataset"):
@@ -95,31 +75,28 @@ with st.expander("Preview dataset"):
 
 
 # --------------------------------------------------
-# Clean and prepare data
+# Data cleaning and preparation
 # --------------------------------------------------
 
-st.subheader("2. Data Cleaning and Preparation")
+st.subheader("1. Data Cleaning and Preparation")
 
 df.columns = df.columns.astype(str).str.strip()
 
 # Remove unnecessary unnamed columns
 unnamed_cols = [col for col in df.columns if col.lower().startswith("unnamed")]
-if len(unnamed_cols) > 0:
+if unnamed_cols:
     df = df.drop(columns=unnamed_cols)
 
-# Check Revenue column
 if "Revenue" not in df.columns:
-    st.error("The uploaded dataset must contain a column called 'Revenue'.")
+    st.error("The dataset must contain a column called `Revenue`.")
     st.stop()
 
-# Create target variable
 df["Revenue_Clean"] = pd.to_numeric(df["Revenue"], errors="coerce").fillna(0)
 
 df["Revenue_Status"] = df["Revenue_Clean"].apply(
     lambda x: "Has Revenue" if x > 0 else "No Revenue"
 )
 
-# Create date features
 if "Date" in df.columns:
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df["Day_of_Week"] = df["Date"].dt.day_name()
@@ -132,9 +109,7 @@ else:
 
 target_distribution = df["Revenue_Status"].value_counts().reset_index()
 target_distribution.columns = ["Revenue Status", "Count"]
-target_distribution["Percentage"] = (
-    target_distribution["Count"] / len(df) * 100
-)
+target_distribution["Percentage"] = target_distribution["Count"] / len(df) * 100
 
 col1, col2 = st.columns(2)
 
@@ -143,13 +118,15 @@ with col1:
     st.dataframe(target_distribution, use_container_width=True)
 
 with col2:
-    st.write("Columns after cleaning")
+    st.write("Columns used after cleaning")
     st.write(df.columns.tolist())
 
 
 # --------------------------------------------------
-# Define safe modelling features
+# Feature selection
 # --------------------------------------------------
+
+st.subheader("2. Feature Selection")
 
 safe_features = [
     "Client",
@@ -167,20 +144,18 @@ safe_features = [
 ]
 
 available_features = [col for col in safe_features if col in df.columns]
-
 missing_features = [col for col in safe_features if col not in df.columns]
 
-if len(available_features) == 0:
+if not available_features:
     st.error("None of the required modelling features were found in the dataset.")
     st.stop()
 
-with st.expander("Feature selection details"):
-    st.write("Features used in the model:")
-    st.write(available_features)
+st.write("Features used in the model:")
+st.write(available_features)
 
-    if len(missing_features) > 0:
-        st.write("Features not found and therefore excluded:")
-        st.write(missing_features)
+if missing_features:
+    st.write("Features missing from the dataset and excluded:")
+    st.write(missing_features)
 
 
 X = df[available_features]
@@ -190,20 +165,19 @@ y = df["Revenue_Status"].map({
     "No Revenue": 1
 })
 
-# Remove rows where target is missing
 valid_rows = y.notna()
 X = X.loc[valid_rows]
 y = y.loc[valid_rows]
 
 
 # --------------------------------------------------
-# Train model
+# Model training
 # --------------------------------------------------
 
 st.subheader("3. Model Training")
 
 if y.nunique() < 2:
-    st.error("The target variable has only one class. The model needs both Has Revenue and No Revenue records.")
+    st.error("The target variable has only one class. The model requires both Has Revenue and No Revenue records.")
     st.stop()
 
 X_train, X_test, y_train, y_test = train_test_split(
@@ -246,7 +220,7 @@ st.success("Model trained successfully.")
 
 
 # --------------------------------------------------
-# Evaluate model
+# Model evaluation
 # --------------------------------------------------
 
 st.subheader("4. Model Evaluation")
@@ -300,8 +274,8 @@ st.subheader("5. Prediction Interface")
 
 st.write(
     """
-    Enter booking details below. The model will predict whether the record is likely to result
-    in revenue or no revenue.
+    Enter booking details below. The model will predict whether the record is likely
+    to result in revenue or no revenue.
     """
 )
 
@@ -358,7 +332,6 @@ input_record = pd.DataFrame([{
     "Quarter": quarter
 }])
 
-# Keep only columns used during training
 input_record = input_record[available_features]
 
 with right:
@@ -382,6 +355,7 @@ with right:
             st.metric("Probability of No Revenue", f"{prob_no_revenue:.2%}")
             st.info("Recommendation: Continue normal follow-up.")
 
+
 st.markdown("---")
 
 st.subheader("Input Record Used")
@@ -392,7 +366,7 @@ st.markdown("---")
 with st.expander("About this app"):
     st.write(
         """
-        This app trains the machine learning model directly from the uploaded dataset.
+        This app trains the model directly from the dataset stored in the project folder.
         This avoids saved-model version problems between Google Colab and Streamlit Cloud.
 
         The model uses Gradient Boosting Classifier and focuses on identifying records
